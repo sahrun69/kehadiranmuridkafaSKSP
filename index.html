@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kehadiran Murid</title>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--tx:#1b1f24;--mut:#667085;--bd:#dde1e7;--pri:#1f4e78;--h:#d1f0da;--ht:#14532d;--t:#fcd5d9;--tt:#7f1d1d;--s:#fdf0c4;--st:#713f12;--n:#eceff3}
+@media (prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1d2127;--tx:#eceff3;--mut:#9aa3b0;--bd:#323943;--pri:#6aa9de;--h:#1d4a2e;--ht:#b7f0c8;--t:#5b2229;--tt:#fecdd3;--s:#584a16;--st:#fdf0c4;--n:#2a3039}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,Arial,sans-serif}
+main{max-width:680px;margin:0 auto;padding:16px}h1{font-size:20px;margin:4px 0 12px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+select,input{font:inherit;color:var(--tx);background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px 10px;min-width:0}
+.grow{flex:1}button{font:inherit;cursor:pointer;border:1px solid var(--bd);background:var(--card);color:var(--tx);border-radius:8px;padding:8px 12px}
+button.pri{background:var(--pri);color:var(--bg);border-color:var(--pri)}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center}.stats b{display:block;font-size:22px}.stats span{font-size:12px;color:var(--mut)}
+.stu{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:1px solid var(--bd)}.stu:last-child{border:0}.nm{flex:1;overflow-wrap:anywhere}
+.st{width:92px;font-weight:600;border:0;padding:10px 0;background:var(--n);color:var(--mut)}
+.st.H{background:var(--h);color:var(--ht)}.st.T{background:var(--t);color:var(--tt)}.st.S{background:var(--s);color:var(--st)}
+.hint{font-size:12px;color:var(--mut);margin:6px 0 0}#msg{display:none;background:var(--s);color:var(--st);border-radius:8px;padding:10px;margin-bottom:12px}
+table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:6px 8px;border-bottom:1px solid var(--bd);text-align:center}th:first-child,td:first-child{text-align:left}.bad{color:var(--tt);font-weight:700}
+</style>
+</head>
+<body><main>
+<h1>📋 Kehadiran Murid</h1>
+<div id="msg"></div>
+
+<div id="login" class="card">
+ <p>Masukkan kod akses kelas anda.</p>
+ <div class="row"><input id="kod" class="grow" placeholder="Kod akses" autocapitalize="characters" autocomplete="off"><button class="pri" id="masuk">Masuk</button></div>
+</div>
+
+<div id="app" hidden>
+ <div class="card row"><select id="kls" class="grow"></select><input id="tgl" type="date"><button id="keluar">Keluar</button></div>
+ <div class="card"><div class="stats">
+  <div><b id="nH">0</b><span>Hadir</span></div><div><b id="nT">0</b><span>Tidak Hadir</span></div>
+  <div><b id="nS">0</b><span>Sakit</span></div><div><b id="pc">0%</b><span>Kehadiran</span></div></div></div>
+ <div class="card">
+  <div class="row"><button id="semuaH">Semua Hadir</button><button class="pri" id="simpan">Simpan</button><span id="dirty" class="hint"></span></div>
+  <div id="list"></div>
+  <p class="hint">Ketik status: Belum → Hadir → Tidak Hadir → Sakit. Tekan Simpan apabila siap.</p>
+ </div>
+ <div class="card" id="adm" hidden>
+  <div class="row"><b>Pentadbir:</b><button id="semak">Semak kelas belum tanda (tarikh dipilih)</button></div>
+  <div id="admOut"></div>
+ </div>
+</div>
+
+<script>
+// GANTI dengan URL Web App Apps Script anda (berakhir dengan /exec)
+var API_URL = 'https://script.google.com/macros/s/AKfycbzmHe5CqMl7NmKeMlYztwt2a4dqrZgbisr19KLstlecS4v1hk_mqSoDxRh1B5N0CcSkRA/exec';
+
+var ORD=['','H','T','S'],LBL={'':'Belum',H:'Hadir',T:'Tidak Hadir',S:'Sakit'},murid=[],marks={},dirty=false,KOD='';
+function $(i){return document.getElementById(i)}
+function msg(t){var m=$('msg');m.textContent=t;m.style.display=t?'block':'none'}
+function err(e){msg('Ralat: '+(e&&e.message?e.message:e))}
+function api(body){
+  body.kod=KOD;
+  // Tiada header Content-Type sengaja: elak preflight CORS pada Apps Script
+  return fetch(API_URL,{method:'POST',body:JSON.stringify(body)})
+    .then(function(r){return r.json()})
+    .then(function(j){if(j.error)throw new Error(j.error);return j});
+}
+function store(k,v){try{if(v===null)localStorage.removeItem(k);else localStorage.setItem(k,v)}catch(e){}}
+function fetchStore(k){try{return localStorage.getItem(k)||''}catch(e){return ''}}
+function cur(){var v=$('kls').value.split('|');return {tahun:Number(v[0]),kelas:v[1]}}
+function setDirty(d){dirty=d;$('dirty').textContent=d?'Belum disimpan':''}
+
+function render(){
+ var box=$('list');box.innerHTML='';var c={H:0,T:0,S:0};
+ if(!murid.length){var p=document.createElement('p');p.className='hint';p.textContent='Tiada murid dalam kelas ini (semak helaian Murid).';box.appendChild(p)}
+ murid.forEach(function(n,i){
+  var v=marks[n]||'';if(c[v]!==undefined)c[v]++;
+  var r=document.createElement('div');r.className='stu';
+  var s=document.createElement('span');s.className='nm';s.textContent=(i+1)+'. '+n;
+  var b=document.createElement('button');b.className='st '+v;b.textContent=LBL[v];
+  b.onclick=function(){var nx=ORD[(ORD.indexOf(v)+1)%4];if(nx)marks[n]=nx;else delete marks[n];setDirty(true);render()};
+  r.appendChild(s);r.appendChild(b);box.appendChild(r)});
+ var t=c.H+c.T+c.S;$('nH').textContent=c.H;$('nT').textContent=c.T;$('nS').textContent=c.S;$('pc').textContent=(t?Math.round(c.H/t*100):0)+'%';
+}
+function load(){
+ if(dirty&&!confirm('Perubahan belum disimpan. Teruskan?'))return;
+ var k=cur();msg('');
+ api({action:'getKelas',tahun:k.tahun,kelas:k.kelas,tarikh:$('tgl').value}).then(function(d){murid=d.murid;marks=d.marks;setDirty(false);render()}).catch(err);
+}
+function masuk(kod){
+ KOD=String(kod||'').trim().toUpperCase();if(!KOD)return;
+ if(API_URL.indexOf('GANTI')===0){msg('API_URL belum ditetapkan dalam index.html.');return}
+ msg('Menyemak kod...');
+ api({action:'login'}).then(function(d){
+  msg('');store('kod',KOD);
+  $('login').hidden=true;$('app').hidden=false;$('adm').hidden=!d.admin;$('tgl').value=d.today;
+  $('kls').innerHTML=d.kelas.map(function(k){return '<option value="'+k.tahun+'|'+k.kelas+'">Tahun '+k.tahun+' '+k.kelas+'</option>'}).join('');
+  load();
+ }).catch(function(e){store('kod',null);$('login').hidden=false;$('app').hidden=true;err(e)});
+}
+$('masuk').onclick=function(){masuk($('kod').value)};
+$('kod').onkeydown=function(e){if(e.key==='Enter')masuk($('kod').value)};
+$('keluar').onclick=function(){if(dirty&&!confirm('Perubahan belum disimpan. Keluar?'))return;store('kod',null);KOD='';$('kod').value='';$('app').hidden=true;$('login').hidden=false;setDirty(false)};
+$('kls').onchange=load;$('tgl').onchange=load;
+$('semuaH').onclick=function(){murid.forEach(function(n){marks[n]='H'});setDirty(true);render()};
+$('simpan').onclick=function(){
+ var k=cur(),b=$('simpan');b.disabled=true;b.textContent='Menyimpan...';
+ api({action:'simpan',tahun:k.tahun,kelas:k.kelas,tarikh:$('tgl').value,marks:marks}).then(function(r){
+  b.disabled=false;b.textContent='Simpan';setDirty(false);msg('');$('dirty').textContent='Disimpan ('+r.disimpan+' murid)';
+ }).catch(function(e){b.disabled=false;b.textContent='Simpan';err(e)});
+};
+$('semak').onclick=function(){
+ api({action:'admin',tarikh:$('tgl').value}).then(function(d){
+  var h='<table><tr><th>Kelas</th><th>Murid</th><th>Ditanda</th></tr>';
+  d.rows.forEach(function(r){h+='<tr><td>Tahun '+r.tahun+' '+r.kelas+'</td><td>'+r.murid+'</td><td class="'+(r.murid>0&&r.ditanda===0?'bad':'')+'">'+(r.ditanda===0?'Belum':r.ditanda)+'</td></tr>'});
+  $('admOut').innerHTML=h+'</table>'}).catch(err);
+};
+var saved=fetchStore('kod');if(saved)masuk(saved);
+</script>
+</main></body></html>
