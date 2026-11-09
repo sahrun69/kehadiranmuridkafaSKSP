@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Kehadiran Murid</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{--bg:#f6f7f9;--card:#fff;--tx:#1b1f24;--mut:#667085;--bd:#dde1e7;--pri:#1f4e78;--h:#d1f0da;--ht:#14532d;--t:#fcd5d9;--tt:#7f1d1d;--s:#fdf0c4;--st:#713f12;--n:#eceff3}
 @media (prefers-color-scheme:dark){:root{--bg:#14171c;--card:#1d2127;--tx:#eceff3;--mut:#9aa3b0;--bd:#323943;--pri:#6aa9de;--h:#1d4a2e;--ht:#b7f0c8;--t:#5b2229;--tt:#fecdd3;--s:#584a16;--st:#fdf0c4;--n:#2a3039}}
@@ -41,6 +43,10 @@ table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:6px 8px;b
   <div id="list"></div>
   <p class="hint">Ketik status: Belum → Hadir → Tidak Hadir → Sakit. Tekan Simpan apabila siap.</p>
  </div>
+ <div class="card">
+  <div class="row"><b>Laporan bulanan:</b><input id="bln" type="month"><button id="pdf">Muat turun PDF</button></div>
+  <p class="hint">PDF untuk kelas yang dipilih di atas.</p>
+ </div>
  <div class="card" id="adm" hidden>
   <div class="row"><b>Pentadbir:</b><button id="semak">Semak kelas belum tanda (tarikh dipilih)</button></div>
   <div id="admOut"></div>
@@ -49,9 +55,9 @@ table{border-collapse:collapse;width:100%;font-size:14px}th,td{padding:6px 8px;b
 
 <script>
 // GANTI dengan URL Web App Apps Script anda (berakhir dengan /exec)
-var API_URL = 'https://script.google.com/macros/s/AKfycbzmHe5CqMl7NmKeMlYztwt2a4dqrZgbisr19KLstlecS4v1hk_mqSoDxRh1B5N0CcSkRA/exec';
+var API_URL = 'https://script.google.com/macros/s/AKfycbywlQxjby5GuQfoK_gzEvNy1lnUi8LyPrBFZtnVIydrk_0ApVfk7t8xX8SDmepVVL4psg/exec';
 
-var ORD=['','H','T','S'],LBL={'':'Belum',H:'Hadir',T:'Tidak Hadir',S:'Sakit'},murid=[],marks={},dirty=false,KOD='';
+var ORD=['','H','T','S'],LBL={'':'Belum',H:'Hadir',T:'Tidak Hadir',S:'Sakit'},murid=[],marks={},dirty=false,KOD='',LABEL='';
 function $(i){return document.getElementById(i)}
 function msg(t){var m=$('msg');m.textContent=t;m.style.display=t?'block':'none'}
 function err(e){msg('Ralat: '+(e&&e.message?e.message:e))}
@@ -90,7 +96,7 @@ function masuk(kod){
  msg('Menyemak kod...');
  api({action:'login'}).then(function(d){
   msg('');store('kod',KOD);
-  $('login').hidden=true;$('app').hidden=false;$('adm').hidden=!d.admin;$('tgl').value=d.today;
+  $('login').hidden=true;$('app').hidden=false;$('adm').hidden=!d.admin;$('tgl').value=d.today;$('bln').value=d.today.slice(0,7);LABEL=d.label||'';
   $('kls').innerHTML=d.kelas.map(function(k){return '<option value="'+k.tahun+'|'+k.kelas+'">Tahun '+k.tahun+' '+k.kelas+'</option>'}).join('');
   load();
  }).catch(function(e){store('kod',null);$('login').hidden=false;$('app').hidden=true;err(e)});
@@ -111,6 +117,42 @@ $('semak').onclick=function(){
   var h='<table><tr><th>Kelas</th><th>Murid</th><th>Ditanda</th></tr>';
   d.rows.forEach(function(r){h+='<tr><td>Tahun '+r.tahun+' '+r.kelas+'</td><td>'+r.murid+'</td><td class="'+(r.murid>0&&r.ditanda===0?'bad':'')+'">'+(r.ditanda===0?'Belum':r.ditanda)+'</td></tr>'});
   $('admOut').innerHTML=h+'</table>'}).catch(err);
+};
+
+var BULAN=['Januari','Februari','Mac','April','Mei','Jun','Julai','Ogos','September','Oktober','November','Disember'];
+function buatPdf(k,bln,d){
+ var doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+ var y=Number(bln.slice(0,4)),m=Number(bln.slice(5,7)),n=new Date(y,m,0).getDate();
+ doc.setFontSize(14);doc.text('REKOD KEHADIRAN MURID',14,14);
+ doc.setFontSize(10);doc.text('Kelas: Tahun '+k.tahun+' '+k.kelas+'     Bulan: '+BULAN[m-1]+' '+y+(LABEL?'     Guru: '+LABEL:''),14,20);
+ var head=['Bil','Nama'],i,dd;
+ for(dd=1;dd<=n;dd++)head.push(String(dd));
+ head.push('H','T','S','%');
+ var colH=new Array(n+1).fill(0);
+ var body=d.murid.map(function(nm,idx){
+  var r=d.data[nm]||{},row=[idx+1,nm],H=0,T=0,S=0;
+  for(dd=1;dd<=n;dd++){var v=r[dd]||'';row.push(v);if(v==='H'){H++;colH[dd]++}else if(v==='T')T++;else if(v==='S')S++}
+  var tot=H+T+S;row.push(H,T,S,tot?Math.round(H/tot*100)+'%':'-');return row});
+ var foot=['','Jumlah hadir'];for(dd=1;dd<=n;dd++)foot.push(colH[dd]||'');foot.push('','','','');
+ body.push(foot);
+ var cs={0:{cellWidth:8},1:{halign:'left',cellWidth:38}};
+ for(i=2;i<n+2;i++)cs[i]={cellWidth:5.5};
+ cs[n+2]={cellWidth:8};cs[n+3]={cellWidth:8};cs[n+4]={cellWidth:8};cs[n+5]={cellWidth:11};
+ doc.autoTable({head:[head],body:body,startY:25,theme:'grid',
+  styles:{fontSize:6.5,cellPadding:0.8,halign:'center',lineWidth:0.1,lineColor:[150,150,150]},
+  headStyles:{fillColor:[31,78,120],textColor:255},columnStyles:cs});
+ var yy=doc.lastAutoTable.finalY+5;doc.setFontSize(8);
+ doc.text('H = Hadir, T = Tidak Hadir, S = Sakit. Dijana pada '+new Date().toLocaleDateString('ms-MY')+'.',14,yy);
+ doc.save('kehadiran_Tahun'+k.tahun+'_'+k.kelas+'_'+bln+'.pdf');
+}
+$('pdf').onclick=function(){
+ var k=cur(),bln=$('bln').value;
+ if(!bln){msg('Pilih bulan dahulu.');return}
+ if(!window.jspdf||!window.jspdf.jsPDF){msg('Pustaka PDF gagal dimuat. Semak sambungan internet dan muat semula halaman.');return}
+ var b=$('pdf');b.disabled=true;b.textContent='Menjana...';msg('');
+ api({action:'bulanan',tahun:k.tahun,kelas:k.kelas,bulan:bln}).then(function(d){
+  b.disabled=false;b.textContent='Muat turun PDF';buatPdf(k,bln,d);
+ }).catch(function(e){b.disabled=false;b.textContent='Muat turun PDF';err(e)});
 };
 var saved=fetchStore('kod');if(saved)masuk(saved);
 </script>
